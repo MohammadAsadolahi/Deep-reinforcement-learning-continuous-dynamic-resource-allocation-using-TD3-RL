@@ -9,25 +9,18 @@
 
 # Deep Reinforcement Learning for<br/>Continuous Dynamic Resource Allocation
 
-### An RL agent that learns to optimally distribute continuous resources across 644 competing subtasks with complex dependency graphs — replacing hand-crafted heuristics with learned intelligence.
+### An RL agent that learns to distribute continuous resources across competing subtasks with dependency constraints — comparing learned policies against random baselines.
 
 <br/>
 
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](https://pytorch.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)](LICENSE)
 [![arXiv](https://img.shields.io/badge/TD3-arXiv%3A1802.09477-b31b1b?style=flat-square&logo=arxiv)](https://arxiv.org/abs/1802.09477)
 
 <br/>
 
-```
-              ┌──────────────────────────────────────────────────┐
-              │                                                  │
-              │    "The best way to allocate resources is to     │
-              │     let the system learn allocation itself."     │
-              │                                                  │
-              └──────────────────────────────────────────────────┘
-```
+**Author:** [Mohammad Asadolahi](https://github.com/MohammadAsadolahi) · Senior Agentic AI Engineer · Focus: Agentic AI Architectures In The Wild
 
 <br/>
 
@@ -39,11 +32,11 @@
 
 ## Why This Exists
 
-Resource allocation is one of the oldest problems in operations research — and one of the hardest to solve well at scale. When you have **644 subtasks** competing for **4 resource types**, each with **stochastic availability** and **cascading precedence constraints**, the combinatorial space explodes far beyond what linear programming or hand-tuned heuristics can handle gracefully.
+Resource allocation is one of the oldest problems in operations research. When you have hundreds of subtasks competing for multiple resource types, each with **stochastic availability** and **cascading precedence constraints**, finding good allocation policies becomes challenging.
 
 This project takes a different approach: **treat the entire allocation problem as a continuous-action MDP and let a deep RL agent learn the policy from scratch.**
 
-The agent doesn't know what "resource allocation" means. It only knows states, actions, and rewards. And yet it discovers allocation strategies that consistently outperform random baselines — completing all 644 subtasks faster while maintaining higher resource utilization across all four resource pools.
+The agent doesn't know what "resource allocation" means. It only knows states, actions, and rewards. The project validates this approach at two scales — a 6-subtask proof of concept and a 644-subtask production-scale experiment — and compares the trained agent's performance against a random (untrained) baseline.
 
 <br/>
 
@@ -61,7 +54,7 @@ Instead of discretizing resources into slots or writing rules for priority queue
 
 ```
                     ┌─────────────────────────────────────────────────────────────┐
-                    │                  TD3 AGENT ARCHITECTURE                     │
+                    │          TD3 AGENT ARCHITECTURE (Production Scale)          │
                     │                                                             │
                     │  ┌──────────────┐         ┌──────────────────────────────┐  │
                     │  │              │  state   │        ACTOR NETWORK        │  │
@@ -84,19 +77,19 @@ Instead of discretizing resources into slots or writing rules for priority queue
                     └─────────────────────────────────────────────────────────────┘
 ```
 
+> **Note:** The diagram above shows the production-scale (Stage 2) architecture from `RL alloc.ipynb`. The proof-of-concept (Stage 1) uses a 3-layer network (256 → 256 → out). The standalone module files (`Actor.py`, `Critic.py`) provide a base implementation with 128-unit hidden layers.
+
 <br/>
 
 ### Why TD3 and Not Something Else?
 
-[TD3](https://arxiv.org/abs/1802.09477) (Fujimoto et al., 2018) is purpose-built for continuous control. It extends DDPG with three innovations that directly address the instabilities you'd hit when training a 644-dimensional continuous policy:
+[TD3](https://arxiv.org/abs/1802.09477) (Fujimoto et al., 2018) is purpose-built for continuous control. It extends DDPG with three innovations that address instabilities in training high-dimensional continuous policies:
 
 | Innovation | What It Solves | How |
 |:--|:--|:--|
-| **Twin Critics** | Q-value overestimation compounds across 644 action dims | Takes $\min(Q_1, Q_2)$ — pessimistic estimate breaks the positive feedback loop |
+| **Twin Critics** | Q-value overestimation compounds across many action dims | Takes $\min(Q_1, Q_2)$ — pessimistic estimate breaks the positive feedback loop |
 | **Delayed Policy Updates** | Actor chases noisy critic gradients | Actor updates every 2 critic updates, giving the value function time to stabilize |
 | **Target Policy Smoothing** | Brittle value peaks in action space | Adds clipped Gaussian noise to target actions: $\tilde{a} = \pi_{\theta'}(s') + \text{clip}(\epsilon, -c, c)$ |
-
-For a 644-dimensional action space with stochastic dynamics, these aren't optional — they're what makes training converge at all.
 
 <br/>
 
@@ -122,7 +115,10 @@ The agent outputs continuous allocation *preferences*. Softmax normalization ens
 
 ### Reward
 
-$$R_t = \begin{cases} +1000 & \text{all demands satisfied (terminal success)} \\ -1 & \text{per timestep (urgency pressure)} \end{cases}$$
+| Stage | Terminal Reward (all demands satisfied) | Step Penalty |
+|:--|:--|:--|
+| Stage 1 (6 subtasks) | +100 | -1 per timestep |
+| Stage 2 (644 subtasks) | +1000 | -1 per timestep |
 
 The step penalty creates a gradient toward speed. The terminal bonus is large enough to dominate the cumulative penalty, ensuring the agent prioritizes *completion* over *avoidance*.
 
@@ -176,6 +172,8 @@ resources.csv           →  R1–R4 pool capacities
 requirements.csv        →  644 × 4 resource consumption matrix
 ```
 
+> **Note:** The CSV data files are not included in this repository. You need to provide your own scheduling data in the format above.
+
 **Notebook:** `RL alloc.ipynb`
 
 <br/>
@@ -190,21 +188,28 @@ requirements.csv        →  644 × 4 resource consumption matrix
 
 ### Trained TD3 vs. Random Policy
 
+**Stage 1 (6 subtasks, 5 resource pools):**
+
+| Dependency Config | Trained TD3 | Random Policy |
+|:--|:--|:--|
+| Simple (order1) | 1,334 steps | 2,840 steps |
+| Complex (order2) | 1,530 steps | 4,313 steps |
+
+**Stage 2 (644 subtasks, 4 resource pools):**
+
 | Metric | Trained TD3 | Random Policy |
 |:--|:--|:--|
-| **Completion Speed** | Fast, monotonic convergence to 100% | Slow, erratic, plateaus frequently |
-| **Resource Utilization** | Consistently high across R1–R4 | Volatile — spikes and dead periods |
-| **Subtask Completion Curve** | Smooth, nearly linear ramp | Noisy, stalls under dependency chains |
-| **Behavior Under Constraints** | Learns to route resources around blocked subtasks | Wastes allocation on blocked subtasks |
+| **Steps to Complete All Subtasks** | 6,192 | 10,144 |
 
-The trained agent discovers a critical emergent behavior: **it learns to preemptively allocate resources to subtasks that will unblock the most downstream dependencies** — a strategy that no explicit rule encodes.
+The trained agent completes all subtasks significantly faster than the random baseline in both stages. In Stage 2, the trained policy finishes in roughly 61% of the time the random policy requires.
+
+> **Note:** Precedence constraints are enforced by the evaluation wrapper (`Resouce_Allocator`), which prevents both trained and random policies from allocating to blocked subtasks. The trained agent's advantage comes from learning more efficient allocation patterns for unblocked subtasks.
 
 ### Training Dynamics
 
-- Clear learning signal emerges after the **10,000-step exploration phase**
-- Cumulative average reward shows **stable, monotonic policy improvement** across 5,000 episodes
-- No catastrophic forgetting — twin critics + delayed updates provide stability even at 644-dimensional action spaces
-- Reward curve shows the agent transitions from random exploration → exploitation within the first ~500 episodes
+- Random exploration is used for the first **10,000 steps** before the policy begins training
+- Average reward generally improves across training episodes, though with typical RL noise
+- The trained policy consistently outperforms the random baseline across different dependency configurations and scales
 
 <br/>
 
@@ -229,6 +234,8 @@ The trained agent discovers a critical emergent behavior: **it learns to preempt
 ├── README.md
 └── LICENSE
 ```
+
+> **Note:** The standalone module files (`Actor.py`, `Critic.py`) define base architectures with 128-unit hidden layers. The notebooks define their own network classes with larger architectures tailored to each stage.
 
 <br/>
 
@@ -281,19 +288,7 @@ jupyter notebook "RL alloc.ipynb"
 # 3. Trained weights saved as: RL_alloc_actor, RL_alloc_critic, etc.
 ```
 
-### Inference
-
-```python
-from TD3 import TD3
-
-# Load trained policy
-policy = TD3(state_dim=645, action_dim=644, max_action=1.0)
-policy.load("RL_alloc")
-
-# Get allocation for current state
-state = env.reset()
-action = policy.select_action(state)  # → 644-dim continuous allocation vector
-```
+> **Note:** Training and inference are done within the notebooks, which define their own network architectures. The standalone module files (`Actor.py`, `Critic.py`, `TD3.py`) provide a base TD3 implementation with different default layer sizes.
 
 <br/>
 
@@ -385,10 +380,16 @@ Some natural directions if you want to build on this:
 
 <div align="center">
 
-**Built with PyTorch** · **Designed for Production-Scale Scheduling** · **MIT Licensed**
+**Built with PyTorch** · **MIT Licensed**
 
 <br/>
 
 <sub>If this project helped your research or engineering work, consider giving it a ⭐</sub>
 
 </div>
+
+<br/>
+
+---
+
+this readme is AI assisted generated, so check for mistakes
